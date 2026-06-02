@@ -1,24 +1,16 @@
 # Merge of Legends
 
-<img alt="Merge of Legends" src=".github/images/start-mol.png" align="right" height="400px" />
+<img alt="Merge of Legends" src=".github/images/start-mol.png" align="right" height="200px" />
 
-Save the land of Codia and restore the sacred Mainline with the help of three mythical creatures and their gifts.
+Hey liquidjestr-bot!
 
-- Pick one of three journeys (Ducky, Mona, Copilot).
-- Solve mini challenges (about 5 minutes).
-- Combine powers and save the world.
+Mona here. I'm done preparing your game. Hope you enjoy! 💚
 
-### How to host this game
+Remember my adventurer friend, the fate of Codia is in your hands. Save the land and restore the sacred Mainline with the help of three mythical creatures and their gifts.
 
-Use the below button to copy the game to your github account. Wait **about 20 seconds** for the issue to be created and click **START GAME**.
+[![](https://img.shields.io/badge/Start_Game-%23197935?style=for-the-badge&logo=github)](https://github.com/liquidjestr-bot/skills-merge-of-legends-build/issues)
 
-[![](https://img.shields.io/badge/Copy%20Game-%E2%86%92-1f883d?style=for-the-badge&logo=github&labelColor=197935)](https://github.com/new?template_owner=ghlearn&template_name=merge-of-legends&owner=%40me&name=skills-merge-of-legends&description=Quest:+Merge+of+legends&visibility=private)
-
-> [!CAUTION]
-> If setting it up on multiple computers, copy the game to a unique GitHub handle for each computer.
-> Otherwise, players will be opening the same issue and confusing each other.
-
-### How to play again
+## How to play again?
 
 The game will automatically reset when a user finishes.
 
