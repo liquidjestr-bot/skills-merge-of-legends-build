@@ -1,0 +1,64 @@
+name: 2-1 Copilot Start
+
+on:
+  workflow_call:
+    inputs:
+      issue-number:
+        description: "The issue number to show the challenge description"
+        required: true
+        type: number
+
+jobs:
+  show_challenge:
+    name: Show Challenge
+    runs-on: ubuntu-latest
+    env:
+      REPO_IMAGE_BASE_URL: ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.event.repository.default_branch }}/.github/images
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build comment - show challenge intro
+        id: build-challenge-intro
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/2-1-copilot-intro.md
+          repo-image-base-url: ${{ env.REPO_IMAGE_BASE_URL }}
+
+      - name: Add comment - show challenge intro
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          issue-number: ${{ inputs['issue-number'] }}
+          body: ${{ steps.build-challenge-intro.outputs.rendered-text }}
+
+      - name: Build comment - show task
+        id: build-task
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/2-2-copilot-talk.md
+          repo-image-base-url: ${{ env.REPO_IMAGE_BASE_URL }}
+
+      - name: Add comment - show task
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          issue-number: ${{ inputs['issue-number'] }}
+          body: ${{ steps.build-task.outputs.rendered-text }}
+
+      - name: Build comment - show diagram challenge
+        id: build-diagram
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/2-3-copilot-diagram.md
+          repo-image-base-url: ${{ env.REPO_IMAGE_BASE_URL }}
+
+      - name: Add comment - show diagram challenge
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          issue-number: ${{ inputs['issue-number'] }}
+          body: ${{ steps.build-diagram.outputs.rendered-text }}
+
+      - name: Disable current workflow and enable next workflow
+        run: |
+          gh workflow disable "2-1 Copilot Start" || true
+          gh workflow enable "2-2 Copilot Check" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

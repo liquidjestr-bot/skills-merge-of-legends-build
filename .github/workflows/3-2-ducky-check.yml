@@ -1,0 +1,159 @@
+name: 3-2 Ducky Check
+
+concurrency:
+  group: 3-2-ducky-check-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+on:
+  issue_comment:
+    types: [edited]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  check_step_work:
+    name: Check step work
+    runs-on: ubuntu-latest
+    if: ${{ github.event.issue.state == 'open' && !endsWith(github.actor, '[bot]') }}
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      REPO_IMAGE_BASE_URL: ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.event.repository.default_branch }}/.github/images
+
+    outputs:
+      all_passed: ${{ steps.verify-checks.outputs.all_passed }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Find image-mod comment
+        id: find-image-mod-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          body-includes: "## Ducky Image Challenge"
+          direction: last
+
+      - name: Check image-mod challenge
+        id: check-image-mod
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { parseUncoveredCards, checkDuckyMatches } = require('./.github/workflows/check-ducky-image-mod');
+            const { removeAlerts } = require('./.github/workflows/actions-utils');
+
+            let commentBody = process.env.COMMENT_BODY;
+
+            if (!commentBody) {
+              core.setFailed('No "Ducky Image Challenge" comment found.');
+              return;
+            }
+
+            const cards = parseUncoveredCards(commentBody);
+            const isCorrect = checkDuckyMatches(cards);
+
+            // Remove any existing alerts before adding new feedback
+            commentBody = removeAlerts(commentBody);
+
+            if (isCorrect) {
+              commentBody += `\n\n> [!TIP]\n> ✅ Perfect! You placed the three guide images with the correct width and alt text. 🐤\n`;
+            } else {
+              commentBody += `\n\n> [!Caution]\n> ❌ Not quite. Check the image tags, width, alt text, and repository image choices.\n`;
+              core.setFailed('Image challenge is incorrect.');
+            }
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: parseInt(process.env.COMMENT_ID),
+              body: commentBody
+            });
+        env:
+          COMMENT_BODY: ${{ steps.find-image-mod-comment.outputs.comment-body }}
+          COMMENT_ID: ${{ steps.find-image-mod-comment.outputs.comment-id }}
+
+      - name: Verify all checks passed
+        id: verify-checks
+        uses: actions/github-script@v7
+        env:
+          steps_outcomes: ${{ toJson(steps.*.outcome) }}
+        with:
+          script: |
+            core.info(`Steps outcomes: ${process.env.steps_outcomes}`);
+            const allPassed = !process.env.steps_outcomes.includes('failure');
+            core.setOutput('all_passed', allPassed.toString());
+            if (allPassed) {
+              core.info('All checks passed.');
+            } else {
+              core.info('Some checks failed. Please review the comments for details.');
+            }
+
+  finish_challenge:
+    name: Finish challenge
+    needs: check_step_work
+    runs-on: ubuntu-latest
+    if: ${{ github.event.issue.state == 'open' && needs.check_step_work.outputs.all_passed == 'true' }}
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      REPO_IMAGE_BASE_URL: ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.event.repository.default_branch }}/.github/images
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build comment - show tip
+        id: build-tip
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/3-6-ducky-tip.md
+          repo-image-base-url: ${{ env.REPO_IMAGE_BASE_URL }}
+
+      - name: Add comment - show tip
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          body: ${{ steps.build-tip.outputs.rendered-text }}
+
+      - name: Build comment - finalize quest
+        id: build-finish
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/3-5-ducky-finish.md
+          repo-image-base-url: ${{ env.REPO_IMAGE_BASE_URL }}
+
+      - name: Add comment - finalize quest
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          body: ${{ steps.build-finish.outputs.rendered-text }}
+
+      - name: Close the issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.ISSUE_NUMBER),
+              state: 'closed'
+            });
+        env:
+          ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+
+      - name: Disable current workflow
+        run: |
+          gh workflow disable "3-2 Ducky Check" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  handoff_to_start:
+    name: Open next quest
+    needs: finish_challenge
+    if: ${{ needs.finish_challenge.result == 'success' }}
+    uses: ./.github/workflows/0-0-start.yml
+    with:
+      closed-issue-number: ${{ github.event.issue.number }}
+    secrets: inherit

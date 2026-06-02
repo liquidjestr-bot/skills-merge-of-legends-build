@@ -1,0 +1,213 @@
+name: 0-0 Start
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      closed-issue-number:
+        description: "Closed quest issue number to comment on with the next issue link"
+        required: false
+        type: string
+    outputs:
+      issue-url:
+        description: "URL of the created or existing open quest issue"
+        value: ${{ jobs.start_exercise.outputs.issue_url }}
+  issues:
+    types: [closed]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+env:
+  EXERCISE_TITLE: "Merge of Legends"
+  ISSUE_TITLE_PREFIX: "Quest: "
+
+jobs:
+  start_exercise:
+    name: Start Exercise
+    runs-on: ubuntu-latest
+    outputs:
+      issue_url: ${{ steps.set-next-issue-url.outputs.issue_url }}
+
+    steps:
+      - name: Decide whether to run quest flow
+        id: should-run
+        uses: actions/github-script@v7
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PAYLOAD: ${{ toJson(github.event) }}
+          EXERCISE_TITLE: ${{ env.EXERCISE_TITLE }}
+          ISSUE_TITLE_PREFIX: ${{ env.ISSUE_TITLE_PREFIX }}
+        with:
+          script: |
+            const event = JSON.parse(process.env.EVENT_PAYLOAD);
+            const expectedTitle = `${process.env.ISSUE_TITLE_PREFIX}${process.env.EXERCISE_TITLE}`;
+            const issueTitle = event.issue?.title ?? '';
+            const shouldRun = process.env.EVENT_NAME !== 'issues' || issueTitle === expectedTitle;
+
+            core.info(`Event name: ${process.env.EVENT_NAME}`);
+            core.info(`Issue title: ${issueTitle || '(none)'}`);
+            core.info(`Expected title: ${expectedTitle}`);
+            core.setOutput('should_run', shouldRun.toString());
+
+      - name: Checkout
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: actions/checkout@v5
+
+      - name: Check for existing open quest issue
+        id: existing-open-issue
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const expectedTitle = `${process.env.ISSUE_TITLE_PREFIX}${process.env.EXERCISE_TITLE}`;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            const matchingIssues = issues.filter(issue => !issue.pull_request && issue.title === expectedTitle);
+            const existingIssue = matchingIssues[0];
+
+            for (const duplicateIssue of matchingIssues.slice(1)) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: duplicateIssue.number,
+                state: 'closed'
+              });
+              core.info(`Closed duplicate open quest issue #${duplicateIssue.number}`);
+            }
+
+            if (existingIssue) {
+              core.info(`Open quest issue already exists: #${existingIssue.number}`);
+              core.setOutput('has_open_issue', 'true');
+              core.setOutput('issue_url', existingIssue.html_url);
+              core.setOutput('issue_number', existingIssue.number.toString());
+            } else {
+              core.setOutput('has_open_issue', 'false');
+            }
+        env:
+          EXERCISE_TITLE: ${{ env.EXERCISE_TITLE }}
+          ISSUE_TITLE_PREFIX: ${{ env.ISSUE_TITLE_PREFIX }}
+
+      - name: Disable all exercise workflows
+        if: steps.should-run.outputs.should_run == 'true'
+        run: |
+          # Find all workflow files that start with a number (0-9)
+          workflows=$(git ls-files | grep -E '^\.github/workflows/[0-9].*\.(yml|yaml)$')
+          for workflow in $workflows; do
+            workflow_name="$(basename "$workflow")"
+            echo "Disabling workflow: $workflow_name"
+            gh workflow disable "$workflow_name" || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build issue description
+        id: build-issue-description
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/0-0-start.md
+          repo-image-base-url: ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.event.repository.default_branch }}/.github/images
+
+      - name: Create issue
+        id: create-issue
+        if: steps.should-run.outputs.should_run == 'true' && steps.existing-open-issue.outputs.has_open_issue != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Show repo where issue will be created
+            console.log(`Creating issue in repository:${ context.repo.owner }/${ context.repo.repo }`);
+
+            // Create the issue
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `${process.env.ISSUE_TITLE_PREFIX}${process.env.EXERCISE_TITLE}`,
+              body: process.env.ISSUE_BODY
+            });
+
+            // Return the location
+            core.setOutput('issue_url', issue.html_url);
+            core.setOutput('issue_number', issue.number.toString());
+        env:
+          ISSUE_REPOSITORY: ${{ env.ISSUE_REPOSITORY || github.repository }}
+          ISSUE_BODY: ${{ steps.build-issue-description.outputs.rendered-text }}
+          EXERCISE_TITLE: ${{ env.EXERCISE_TITLE }}
+          ISSUE_TITLE_PREFIX: ${{ env.ISSUE_TITLE_PREFIX }}
+
+      - name: Set next issue URL
+        id: set-next-issue-url
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: actions/github-script@v7
+        env:
+          EXISTING_ISSUE_URL: ${{ steps.existing-open-issue.outputs.issue_url }}
+          CREATED_ISSUE_URL: ${{ steps.create-issue.outputs.issue_url }}
+        with:
+          script: |
+            core.setOutput('issue_url', process.env.EXISTING_ISSUE_URL || process.env.CREATED_ISSUE_URL || '');
+
+      - name: Set closed issue number
+        id: set-closed-issue-number
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: actions/github-script@v7
+        env:
+          INPUT_CLOSED_ISSUE_NUMBER: ${{ inputs['closed-issue-number'] }}
+        with:
+          script: |
+            const fromInput = (process.env.INPUT_CLOSED_ISSUE_NUMBER || '').toString().trim();
+            const eventIssueNumber =
+              context.eventName === 'issues' && context.payload.issue
+                ? String(context.payload.issue.number)
+                : '';
+            const issueNumber = fromInput || eventIssueNumber || '';
+
+            core.info(`Event: ${context.eventName}`);
+            core.info(`Closed issue number from input: "${fromInput}"`);
+            core.info(`Closed issue number from event: "${eventIssueNumber}"`);
+            core.info(`Resolved closed issue number: "${issueNumber}"`);
+
+            if (issueNumber && !/^\d+$/.test(issueNumber)) {
+              core.setFailed(`Closed issue number must be numeric. Received: ${issueNumber}`);
+              return;
+            }
+
+            core.setOutput('issue_number', issueNumber);
+
+      - name: Build close comment
+        id: build-close-comment
+        if: ${{ steps.should-run.outputs.should_run == 'true' && steps.set-next-issue-url.outputs.issue_url != '' && steps.set-closed-issue-number.outputs.issue_number != '' }}
+        uses: ./.github/actions/render-markdown-template
+        with:
+          template-file: .github/steps/x-close-with-next-link.md
+          template-vars: |
+            next_issue_url: ${{ steps.set-next-issue-url.outputs.issue_url }}
+
+      - name: Add comment - close with next issue link
+        if: ${{ steps.should-run.outputs.should_run == 'true' && steps.set-next-issue-url.outputs.issue_url != '' && steps.set-closed-issue-number.outputs.issue_number != '' }}
+        uses: actions/github-script@v7
+        env:
+          CLOSED_ISSUE_NUMBER: ${{ steps.set-closed-issue-number.outputs.issue_number }}
+          COMMENT_BODY: ${{ steps.build-close-comment.outputs.rendered-text }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.CLOSED_ISSUE_NUMBER),
+              body: process.env.COMMENT_BODY
+            });
+
+      - name: Reenable to allow restarting, and enable challenge picker workflow.
+        if: steps.should-run.outputs.should_run == 'true'
+        run: |
+          gh workflow enable "0-0 Start" || true
+          gh workflow enable "0-1 Pick" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
