@@ -25,6 +25,5 @@ Select 1 challenge then wait a moment (max 15 seconds).
 > **DO NOT CLICK Create sub-issue**.
 > Only check one challenge box below.
 
-<!-- - [ ] Ducky - Beginner -->
 - [ ] Mona
 - [ ] Copilot
